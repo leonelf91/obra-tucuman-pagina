@@ -1,0 +1,650 @@
+<!doctype html>
+<html lang="es-AR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Obra Tucumán</title>
+<style>
+:root{
+  --color-bg:#f6f5f1;--color-panel:#ffffff;--color-fg:#1f1e1c;--color-fg-muted:#6b6962;--color-border-line:#e3e1da;
+  --cds-surface-popover:#ffffff;--cds-border:#d9d6cd;--cds-text-secondary:#6b6962;--cds-shadow-popover:0 4px 16px rgba(0,0,0,.12);
+  --cds-gap-xs:4px;--cds-gap-sm:8px;--cds-gap-md:12px;--cds-gap-lg:20px;--cds-pad-lg:16px;--cds-radius:10px;
+  --cds-font-size-caption:13px;--cds-font-size-body:15px;--cds-font-size-heading:16px;--cds-font-size-title:28px;
+  --cds-font-weight-medium:600;
+  --font-anthropic-sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --font-anthropic-serif:Georgia,"Times New Roman",serif;
+  --ok:#1a7f37;--error:#b3261e;
+}
+@media (prefers-color-scheme:dark){:root{
+  --color-bg:#1b1a18;--color-panel:#262522;--color-fg:#eceae4;--color-fg-muted:#a3a096;--color-border-line:#3a3833;
+  --cds-surface-popover:#2f2e2a;--cds-border:#48463f;--cds-text-secondary:#a3a096;--cds-shadow-popover:0 4px 16px rgba(0,0,0,.5);
+  --ok:#57d27a;--error:#f2b8b5;
+}}
+*{box-sizing:border-box}
+[hidden]{display:none !important}
+body{margin:0;background:var(--color-bg);color:var(--color-fg);font-family:var(--font-anthropic-sans);font-size:var(--cds-font-size-body);line-height:1.45}
+.pagina{max-width:1000px;margin:0 auto;padding:16px 16px 48px;display:flex;flex-direction:column;gap:var(--cds-gap-lg)}
+.barra{display:flex;justify-content:flex-end;align-items:center;gap:12px;font-size:var(--cds-font-size-caption);color:var(--color-fg-muted)}
+.enlace{font:inherit;color:var(--color-fg-muted);background:none;border:0;padding:4px;text-decoration:underline;cursor:pointer}
+.panel{background:var(--color-panel);border:1px solid var(--color-border-line);border-radius:var(--cds-radius);padding:var(--cds-pad-lg)}
+.panel h2{font-size:var(--cds-font-size-heading);font-weight:var(--cds-font-weight-medium);margin:0 0 12px}
+.campos{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.campo{display:flex;flex-direction:column;gap:4px;font-size:var(--cds-font-size-caption);color:var(--color-fg-muted)}
+.campo.ancho{grid-column:1/-1}
+input,select,button.boton{font:inherit;font-size:var(--cds-font-size-body);padding:9px 11px;border-radius:8px;border:1px solid var(--cds-border);background:var(--color-bg);color:var(--color-fg);width:100%}
+button.boton{width:auto;background:var(--color-fg);color:var(--color-bg);border-color:var(--color-fg);cursor:pointer}
+button.boton.peligro{background:none;color:var(--error);border-color:var(--error)}
+button:disabled{opacity:.6;cursor:default}
+.acciones{display:flex;align-items:center;gap:12px;margin-top:12px;flex-wrap:wrap}
+.aviso{margin:0;font-size:var(--cds-font-size-caption);min-height:1.3em}
+.aviso.ok{color:var(--ok)}
+.aviso.error{color:var(--error)}
+.login{min-height:90vh;display:grid;place-items:center}
+.login form{width:100%;max-width:340px;display:flex;flex-direction:column;gap:12px}
+.login h1{margin:0;font-family:var(--font-anthropic-serif);font-weight:400;font-size:24px}
+.fila-borrar{display:flex;gap:12px;flex-wrap:wrap}
+.fila-borrar select{flex:1 1 260px}
+</style>
+</head>
+<body>
+
+<section class="login" id="vista-login" hidden>
+  <form class="panel" id="form-login">
+    <h1>Obra Tucumán</h1>
+    <label class="campo">Email
+      <input id="login-email" type="email" autocomplete="username" required>
+    </label>
+    <label class="campo">Contraseña
+      <input id="login-password" type="password" autocomplete="current-password" required>
+    </label>
+    <button class="boton" id="login-boton" type="submit">Entrar</button>
+    <p class="aviso error" id="login-aviso" role="alert"></p>
+  </form>
+</section>
+
+<main class="pagina" id="vista-tablero" hidden>
+  <div class="barra">
+    <span id="usuario"></span>
+    <button class="enlace" id="actualizar" type="button">Actualizar</button>
+    <button class="enlace" id="salir" type="button">Salir</button>
+  </div>
+  <p class="aviso error" id="aviso-general" role="alert" hidden></p>
+
+  <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+  <script>
+  // Reemplazo mínimo del objeto `dash` que le da Claude al tablero. Los datos los pone la app, más abajo.
+  window.dash = (() => {
+    const fuentes = { gastos: [], cuotas: [], cotizacion: [] };
+    const calculos = {};
+    const dibujos = [];
+    const data = (id) => {
+      if (calculos[id]) {
+        const c = calculos[id];
+        return { status: "ok", data: c.fn(...c.inputs.map((i) => data(i).data)) };
+      }
+      return id in fuentes ? { status: "ok", data: fuentes[id] } : { status: "missing", data: [] };
+    };
+    const redibujar = () =>
+      dibujos.forEach(([nombre, fn]) =>
+        document.querySelectorAll('[data-draw="' + nombre + '"]').forEach((el) => fn(el))
+      );
+    return {
+      colors: ["#4269d0", "#efb118", "#ff725c", "#6cc5b0", "#3ca951", "#ff8ab7", "#a463f2", "#97bbf5", "#9c6b4e", "#9498a0"],
+      calc: (id, def) => { calculos[id] = def; },
+      draw: (nombre, fn) => { dibujos.push([nombre, fn]); },
+      data,
+      poner: (id, filas) => { fuentes[id] = filas; },
+      redibujar,
+    };
+  })();
+  </script>
+
+<style>
+.ot-wrap{display:flex;flex-direction:column;gap:var(--cds-gap-lg);font-family:var(--font-anthropic-sans);color:var(--color-fg)}
+.ot-title{font-family:var(--font-anthropic-serif);font-weight:400;font-size:var(--cds-font-size-title);margin:0}
+.ot-lead{margin:0;color:var(--color-fg-muted)}
+.ot-lead b{color:var(--color-fg);font-weight:var(--cds-font-weight-medium)}
+.ot-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:var(--cds-gap-md)}
+.ot-card{background:var(--color-panel);border:1px solid var(--color-border-line);border-radius:var(--cds-radius);padding:var(--cds-pad-lg);display:flex;flex-direction:column;gap:var(--cds-gap-xs)}
+.ot-card-label{font-size:var(--cds-font-size-caption);color:var(--color-fg-muted)}
+.ot-card-value{font-family:var(--font-anthropic-serif);font-weight:400;font-size:var(--cds-font-size-title);font-variant-numeric:tabular-nums;line-height:1.15}
+.ot-card-usd{font-size:var(--cds-font-size-body);color:var(--color-fg-muted);font-variant-numeric:tabular-nums}
+.ot-rate{margin:0;font-size:var(--cds-font-size-caption);color:var(--color-fg-muted)}
+.ot-card-note{font-size:var(--cds-font-size-caption);color:var(--color-fg-muted)}
+.ot-h2{font-size:var(--cds-font-size-heading);font-weight:var(--cds-font-weight-medium);margin:0 0 var(--cds-gap-sm)}
+.ot-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:var(--cds-gap-lg)}
+.ot-chart{position:relative;min-height:240px}
+.ot-pie{display:flex;flex-wrap:wrap;gap:var(--cds-gap-md);align-items:center}
+.ot-pie svg{flex:0 0 auto}
+.ot-legend{flex:1 1 160px;display:flex;flex-direction:column;gap:6px;font-size:var(--cds-font-size-caption)}
+.ot-legend-row{display:grid;grid-template-columns:10px 1fr auto;gap:8px;align-items:center}
+.ot-sw{width:10px;height:10px;border-radius:2px}
+.ot-num{font-variant-numeric:tabular-nums;color:var(--color-fg-muted);text-align:right}
+.ot-bars{display:flex;flex-direction:column;gap:var(--cds-gap-sm);font-size:var(--cds-font-size-caption)}
+.ot-bar-head{display:flex;justify-content:space-between;gap:8px}
+.ot-bar-track{height:10px;background:var(--color-border-line);border-radius:5px;overflow:hidden;margin-top:4px}
+.ot-bar-fill{height:100%;border-radius:5px}
+.ot-tip{position:absolute;pointer-events:none;background:var(--cds-surface-popover);border:1px solid var(--cds-border);box-shadow:var(--cds-shadow-popover);border-radius:var(--cds-radius);padding:6px 10px;font-size:var(--cds-font-size-caption);white-space:nowrap}
+.ot-tip span{color:var(--cds-text-secondary)}
+.ot-tablewrap{overflow-x:auto}
+.ot-table{width:100%;border-collapse:collapse;font-size:var(--cds-font-size-caption)}
+.ot-table th{text-align:left;color:var(--color-fg-muted);font-weight:var(--cds-font-weight-medium);padding:6px 8px;border-bottom:1px solid var(--color-border-line);white-space:nowrap}
+.ot-table td{padding:8px;border-bottom:1px solid var(--color-border-line);vertical-align:top}
+.ot-table .r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ot-msg{color:var(--color-fg-muted);font-size:var(--cds-font-size-caption)}
+</style>
+
+<div class="ot-wrap" lang="es-AR" data-read>
+  <header id="encabezado">
+    <h1 class="ot-title">Obra calle Tucumán</h1>
+    <p class="ot-lead" id="resumen">Llevás gastados <b data-draw="lead-gastado" data-source="totales" data-field="gastado" data-row="0">—</b>. El rubro que más pesa es <b data-draw="lead-cat" data-source="por_categoria" data-field="Categoría" data-row="0">—</b>, con <b data-draw="lead-cat-total" data-source="por_categoria" data-field="Total" data-row="0">—</b>.</p>
+  </header>
+
+  <section class="ot-kpis" id="indicadores">
+    <div class="ot-card" id="kpi-gastado">
+      <span class="ot-card-label">Total gastado</span>
+      <span class="ot-card-value" data-draw="k-gastado" data-source="totales" data-field="gastado" data-row="0">—</span>
+      <span class="ot-card-usd">(<span data-draw="k-gastado-usd" data-source="totales" data-field="gastado_usd" data-row="0">—</span>)</span>
+      <span class="ot-card-note">Lo que ya pagaste</span>
+    </div>
+    <div class="ot-card" id="kpi-pendiente">
+      <span class="ot-card-label">Cuotas pendientes</span>
+      <span class="ot-card-value" data-draw="k-pendiente" data-source="totales" data-field="pendiente" data-row="0">—</span>
+      <span class="ot-card-usd">(<span data-draw="k-pendiente-usd" data-source="totales" data-field="pendiente_usd" data-row="0">—</span>)</span>
+      <span class="ot-card-note">Arquitecta y albañiles</span>
+    </div>
+    <div class="ot-card" id="kpi-comprometido">
+      <span class="ot-card-label">Gastado + pendiente</span>
+      <span class="ot-card-value" data-draw="k-comprometido" data-source="totales" data-field="comprometido" data-row="0">—</span>
+      <span class="ot-card-usd">(<span data-draw="k-comprometido-usd" data-source="totales" data-field="comprometido_usd" data-row="0">—</span>)</span>
+      <span class="ot-card-note">Lo que va a costar la obra hasta ahora</span>
+    </div>
+  </section>
+  <p class="ot-rate" id="cotizacion">Dólares calculados al dólar blue venta de <b data-draw="cot-venta" data-source="cotizacion" data-field="Venta" data-row="0">—</b>, cierre del <span data-draw="cot-fecha" data-source="cotizacion" data-field="Fecha" data-row="0">—</span> (<span data-draw="cot-fuente" data-source="cotizacion" data-field="Fuente" data-row="0">—</span>).</p>
+
+  <div class="ot-grid">
+    <section class="ot-card" id="por-categoria">
+      <h2 class="ot-h2">Gastos por categoría</h2>
+      <div class="ot-chart" data-draw="torta" data-source="por_categoria"></div>
+    </section>
+    <section class="ot-card" id="por-forma-de-pago">
+      <h2 class="ot-h2">Por forma de pago</h2>
+      <div class="ot-bars" data-draw="pagos" data-source="por_pago"></div>
+    </section>
+  </div>
+
+  <section class="ot-card" id="detalle">
+    <h2 class="ot-h2">Detalle de gastos</h2>
+    <div class="ot-tablewrap">
+      <table class="ot-table" data-source="gastos" data-row-key="Concepto">
+        <thead><tr>
+          <th data-field="Fecha">Fecha</th>
+          <th data-field="Concepto">Concepto</th>
+          <th data-field="Categoría">Categoría</th>
+          <th data-field="Forma de pago">Pago</th>
+          <th data-field="Monto" class="r">Monto</th>
+        </tr></thead>
+        <tbody data-draw="tabla"></tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<script>
+
+dash.calc('totales', {
+  inputs: ['gastos', 'cuotas', 'cotizacion'],
+  title: 'Totales de la obra',
+  description: 'Suma de lo gastado; cuotas pendientes = (cuotas totales - cuotas ya cargadas como gasto) x valor de la cuota; la suma de los dos; y cada uno pasado a dólares dividiendo por la cotización del dólar blue venta, redondeado.',
+  fn: (gastos, cuotas, cotizacion) => {
+    const n = (v) => v == null ? 0 : typeof v === 'object' ? +(v.number ?? v.value ?? 0) || 0 : +v || 0;
+    const blue = cotizacion.length ? n(cotizacion[0]['Venta']) : 0;
+    const usd = (ars) => blue ? Math.round(ars / blue) : null;
+    const gastado = d3.sum(gastos, (g) => n(g['Monto']));
+    const pendiente = d3.sum(cuotas.filter((c) => c['Concepto']), (c) => {
+      const pagadas = gastos.filter((g) => String(g['Concepto'] ?? '').startsWith(c['Concepto'])).length;
+      return Math.max(0, n(c['Total cuotas']) - pagadas) * n(c['Valor cuota']);
+    });
+    return [{gastado: Math.round(gastado * 100) / 100, pendiente: Math.round(pendiente * 100) / 100, comprometido: Math.round((gastado + pendiente) * 100) / 100, gastado_usd: usd(gastado), pendiente_usd: usd(pendiente), comprometido_usd: usd(gastado + pendiente)}];
+  }
+});
+
+dash.calc('por_categoria', {
+  inputs: ['gastos'],
+  title: 'Gastos por categoría',
+  description: 'Suma de los montos de cada categoría y su parte del total.',
+  fn: (gastos) => {
+    const n = (v) => v == null ? 0 : typeof v === 'object' ? +(v.number ?? v.value ?? 0) || 0 : +v || 0;
+    const m = d3.rollup(gastos.filter((g) => g['Categoría']), (v) => d3.sum(v, (g) => n(g['Monto'])), (g) => g['Categoría']);
+    const tot = d3.sum(m.values());
+    return Array.from(m, ([c, t]) => ({'Categoría': c, Total: Math.round(t * 100) / 100, Porcentaje: tot ? t / tot : 0})).filter((r) => r.Total > 0).sort((a, b) => b.Total - a.Total);
+  }
+});
+
+dash.calc('por_pago', {
+  inputs: ['gastos'],
+  title: 'Gastos por forma de pago',
+  description: 'Suma de los montos de cada forma de pago y su parte del total.',
+  fn: (gastos) => {
+    const n = (v) => v == null ? 0 : typeof v === 'object' ? +(v.number ?? v.value ?? 0) || 0 : +v || 0;
+    const m = d3.rollup(gastos.filter((g) => g['Monto'] != null), (v) => d3.sum(v, (g) => n(g['Monto'])), (g) => g['Forma de pago'] || 'Sin dato');
+    const tot = d3.sum(m.values());
+    return Array.from(m, ([f, t]) => ({'Forma de pago': f, Total: Math.round(t * 100) / 100, Porcentaje: tot ? t / tot : 0})).filter((r) => r.Total > 0).sort((a, b) => b.Total - a.Total);
+  }
+});
+
+window.otMoney = new Intl.NumberFormat('es-AR', {style: 'currency', currency: 'ARS', currencyDisplay: 'code', minimumFractionDigits: 2, maximumFractionDigits: 2});
+window.otUsd = new Intl.NumberFormat('es-AR', {style: 'currency', currency: 'USD', currencyDisplay: 'code', maximumFractionDigits: 0});
+window.otPct = new Intl.NumberFormat('es-AR', {style: 'percent', maximumFractionDigits: 1});
+
+const otKpi = (name, field) => dash.draw(name, (el) => {
+  const t = dash.data('totales');
+  if (t.status !== 'loading') el.classList.remove('dash-skeleton'); else el.classList.add('dash-skeleton');
+  el.textContent = t.status === 'ok' && t.data && t.data.length ? window.otMoney.format(t.data[0][field]) : '—';
+});
+otKpi('k-gastado', 'gastado');
+otKpi('k-pendiente', 'pendiente');
+otKpi('k-comprometido', 'comprometido');
+otKpi('lead-gastado', 'gastado');
+const otUsdKpi = (name, field) => dash.draw(name, (el) => {
+  const t = dash.data('totales');
+  const v = t.status === 'ok' && t.data && t.data.length ? t.data[0][field] : null;
+  el.textContent = v == null ? '—' : window.otUsd.format(v);
+});
+otUsdKpi('k-gastado-usd', 'gastado_usd');
+otUsdKpi('k-pendiente-usd', 'pendiente_usd');
+otUsdKpi('k-comprometido-usd', 'comprometido_usd');
+dash.draw('cot-venta', (el) => {
+  const c = dash.data('cotizacion');
+  el.textContent = c.status === 'ok' && c.data.length ? window.otMoney.format(+c.data[0]['Venta']) : '—';
+});
+dash.draw('cot-fecha', (el) => {
+  const c = dash.data('cotizacion');
+  const d = c.status === 'ok' && c.data.length ? d3.utcParse('%Y-%m-%d')(String(c.data[0]['Fecha'])) : null;
+  el.textContent = d ? d3.utcFormat('%d/%m/%Y')(d) : '—';
+});
+dash.draw('cot-fuente', (el) => {
+  const c = dash.data('cotizacion');
+  el.textContent = c.status === 'ok' && c.data.length ? String(c.data[0]['Fuente'] ?? '') : '—';
+});
+
+dash.draw('lead-cat', (el) => {
+  const c = dash.data('por_categoria');
+  el.textContent = c.status === 'ok' && c.data && c.data.length ? c.data[0]['Categoría'] : '—';
+});
+dash.draw('lead-cat-total', (el) => {
+  const c = dash.data('por_categoria');
+  el.textContent = c.status === 'ok' && c.data && c.data.length ? window.otMoney.format(c.data[0].Total) : '—';
+});
+
+dash.draw('torta', (el) => {
+  const c = dash.data('por_categoria');
+  el.replaceChildren();
+  if (c.status === 'error') { const p = document.createElement('p'); p.className = 'ot-msg'; p.textContent = 'No se pudieron cargar los gastos por categoría.'; el.append(p); return; }
+  if (c.status !== 'ok' || !c.data) { el.textContent = '—'; return; }
+  if (!c.data.length) { const p = document.createElement('p'); p.className = 'ot-msg'; p.textContent = 'Todavía no hay gastos cargados.'; el.append(p); return; }
+  const rows = c.data;
+  const color = (i) => dash.colors[i % dash.colors.length];
+  const box = d3.select(el).append('div').attr('class', 'ot-pie');
+  const size = Math.max(140, Math.min(220, (el.clientWidth || 300) * 0.5));
+  const r = size / 2;
+  const svg = box.append('svg').attr('width', size).attr('height', size).attr('viewBox', `${-r} ${-r} ${size} ${size}`)
+    .attr('role', 'img').attr('aria-label', 'Gráfico de torta de gastos por categoría');
+  const arcs = d3.pie().sort(null).value((d) => d.Total)(rows);
+  const arc = d3.arc().innerRadius(0).outerRadius(r - 2);
+  const tip = d3.select(el).append('div').attr('class', 'ot-tip').style('display', 'none');
+  svg.selectAll('path').data(arcs).join('path')
+    .attr('d', arc)
+    .style('fill', (d, i) => color(i))
+    .style('stroke', 'var(--color-panel)').style('stroke-width', '1.5px')
+    .on('pointermove', (ev, d) => {
+      const [x, y] = d3.pointer(ev, el);
+      tip.style('display', null); tip.node().replaceChildren();
+      tip.append('div').text(d.data['Categoría']);
+      tip.append('span').text(`${window.otMoney.format(d.data.Total)} · ${window.otPct.format(d.data.Porcentaje)}`);
+      const w = tip.node().offsetWidth;
+      tip.style('left', `${Math.max(0, Math.min(el.clientWidth - w, x + 12))}px`).style('top', `${y + 12}px`);
+    })
+    .on('pointerleave', () => tip.style('display', 'none'));
+  const leg = box.append('div').attr('class', 'ot-legend');
+  rows.forEach((d, i) => {
+    const row = leg.append('div').attr('class', 'ot-legend-row');
+    row.append('span').attr('class', 'ot-sw').style('background', color(i));
+    row.append('span').text(d['Categoría']);
+    row.append('span').attr('class', 'ot-num').text(window.otPct.format(d.Porcentaje));
+  });
+});
+
+dash.draw('pagos', (el) => {
+  const c = dash.data('por_pago');
+  el.replaceChildren();
+  if (c.status === 'error') { const p = document.createElement('p'); p.className = 'ot-msg'; p.textContent = 'No se pudieron cargar las formas de pago.'; el.append(p); return; }
+  if (c.status !== 'ok' || !c.data) { el.textContent = '—'; return; }
+  if (!c.data.length) { const p = document.createElement('p'); p.className = 'ot-msg'; p.textContent = 'Todavía no hay gastos cargados.'; el.append(p); return; }
+  const max = d3.max(c.data, (d) => d.Total) || 1;
+  c.data.forEach((d, i) => {
+    const item = d3.select(el).append('div');
+    const head = item.append('div').attr('class', 'ot-bar-head');
+    head.append('span').text(d['Forma de pago']);
+    head.append('span').attr('class', 'ot-num').text(`${window.otMoney.format(d.Total)} · ${window.otPct.format(d.Porcentaje)}`);
+    item.append('div').attr('class', 'ot-bar-track').append('div').attr('class', 'ot-bar-fill')
+      .style('width', `${(d.Total / max) * 100}%`).style('background', dash.colors[i % dash.colors.length]);
+  });
+});
+
+dash.draw('tabla', (tb) => {
+  const g = dash.data('gastos');
+  tb.replaceChildren();
+  const msg = (t) => { const tr = document.createElement('tr'); const td = document.createElement('td'); td.colSpan = 5; td.className = 'ot-msg'; td.textContent = t; tr.append(td); tb.append(tr); };
+  if (g.status === 'error') return msg('No se pudo leer la planilla de gastos.');
+  if (g.status !== 'ok') return;
+  const n = (v) => v == null ? 0 : typeof v === 'object' ? +(v.number ?? v.value ?? 0) || 0 : +v || 0;
+  const fechaTxt = (v) => {
+    const s = v && typeof v === 'object' ? (v.date ?? v.value ?? '') : (v ?? '');
+    const d = d3.utcParse('%Y-%m-%d')(String(s).slice(0, 10));
+    return d ? d3.utcFormat('%d/%m/%Y')(d) : String(s);
+  };
+  const rows = g.data.filter((r) => r['Monto'] != null).slice().sort((a, b) => String(b['Fecha'] ?? '').localeCompare(String(a['Fecha'] ?? '')));
+  if (!rows.length) return msg('Todavía no hay gastos cargados.');
+  rows.forEach((r) => {
+    const tr = document.createElement('tr');
+    const cells = [fechaTxt(r['Fecha']), r['Concepto'] ?? '', r['Categoría'] ?? '', r['Forma de pago'] ?? '', window.otMoney.format(n(r['Monto']))];
+    cells.forEach((t, i) => { const td = document.createElement('td'); td.textContent = t; if (i === 4) td.className = 'r'; if (i === 0) td.style.whiteSpace = 'nowrap'; tr.append(td); });
+    tb.append(tr);
+  });
+});
+</script>
+
+
+  <section class="panel" id="cargar">
+    <h2>Cargar un gasto</h2>
+    <form id="form-gasto">
+      <div class="campos">
+        <label class="campo ancho">Concepto
+          <input id="g-concepto" required maxlength="500">
+        </label>
+        <label class="campo">Categoría
+          <input id="g-categoria" list="categorias" required maxlength="100">
+          <datalist id="categorias"></datalist>
+        </label>
+        <label class="campo">Monto (ARS)
+          <input id="g-monto" type="number" inputmode="decimal" min="0.01" step="0.01" required>
+        </label>
+        <label class="campo">Fecha
+          <input id="g-fecha" type="date" required>
+        </label>
+        <label class="campo">Forma de pago
+          <select id="g-forma-pago" required>
+            <option>Efectivo</option>
+            <option>Tarjeta de crédito</option>
+            <option>Tarjeta de débito</option>
+            <option>Transferencia</option>
+          </select>
+        </label>
+        <label class="campo">Proveedor (opcional)
+          <input id="g-proveedor" maxlength="200">
+        </label>
+        <label class="campo ancho">Notas (opcional)
+          <input id="g-notas" maxlength="1000">
+        </label>
+      </div>
+      <div class="acciones">
+        <button class="boton" id="g-boton" type="submit">Cargar gasto</button>
+        <p class="aviso" id="g-aviso" role="status"></p>
+      </div>
+    </form>
+  </section>
+
+  <section class="panel" id="borrar">
+    <h2>Borrar un gasto</h2>
+    <div class="fila-borrar">
+      <select id="b-gasto" aria-label="Gasto a borrar"></select>
+      <button class="boton peligro" id="b-boton" type="button">Borrar</button>
+    </div>
+    <p class="aviso" id="b-aviso" role="status"></p>
+  </section>
+</main>
+
+<script>
+(() => {
+  // Servidor de la obra (ms-apigateway en la Raspberry Pi, publicado por ngrok).
+  const API = window.OBRA_API ?? "https://churchless-nuggety-marlen.ngrok-free.dev";
+  const GUARDADO = "obra-token";
+  const $ = (id) => document.getElementById(id);
+
+  const MENSAJES = {
+    CATEGORIA_REQUERIDA: "Falta la categoría.",
+    CONCEPTO_REQUERIDO: "Falta el concepto.",
+    FECHA_REQUERIDA: "Falta la fecha.",
+    FORMA_DE_PAGO_INVALIDA: "La forma de pago no es válida.",
+    MONTO_INVALIDO: "El monto tiene que ser mayor a cero.",
+    CUERPO_INVALIDO: "Algún dato tiene un formato que el servidor no entiende.",
+    GASTO_NO_ENCONTRADO: "Ese gasto ya no existe.",
+  };
+
+  const sesion = {
+    token: null,
+    leer() { try { this.token = localStorage.getItem(GUARDADO); } catch (_) { this.token = null; } },
+    poner(token) { this.token = token; try { localStorage.setItem(GUARDADO, token); } catch (_) {} },
+    cerrar() { this.token = null; try { localStorage.removeItem(GUARDADO); } catch (_) {} },
+    // Datos que trae el token (email, vencimiento). No valida la firma: eso lo hace el servidor.
+    datos() {
+      try {
+        const medio = this.token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+        return JSON.parse(decodeURIComponent(escape(atob(medio))));
+      } catch (_) { return null; }
+    },
+    vigente() {
+      const d = this.token && this.datos();
+      return !!d && (!d.exp || d.exp * 1000 > Date.now() + 5000);
+    },
+  };
+
+  async function api(metodo, ruta, cuerpo) {
+    const headers = { Accept: "application/json", "ngrok-skip-browser-warning": "1" };
+    if (sesion.token) headers.Authorization = "Bearer " + sesion.token;
+    if (cuerpo !== undefined) headers["Content-Type"] = "application/json";
+    const res = await fetch(API + ruta, { method: metodo, headers, body: cuerpo === undefined ? undefined : JSON.stringify(cuerpo) });
+    let datos = null;
+    try { datos = await res.json(); } catch (_) {}
+    return { ok: res.ok, status: res.status, datos };
+  }
+
+  function mostrarLogin(mensaje) {
+    $("vista-tablero").hidden = true;
+    $("vista-login").hidden = false;
+    $("login-aviso").textContent = mensaje || "";
+    $("login-password").value = "";
+    ($("login-email").value ? $("login-password") : $("login-email")).focus();
+  }
+
+  function avisoGeneral(texto) {
+    $("aviso-general").textContent = texto || "";
+    $("aviso-general").hidden = !texto;
+  }
+
+  // Devuelve true si la respuesta obliga a salir del tablero (sesión vencida o usuario sin acceso).
+  function sinAcceso(r) {
+    if (r.status === 403 && r.datos && r.datos.code === "USUARIO_NO_HABILITADO") {
+      sesion.cerrar();
+      mostrarLogin("Tu usuario no tiene acceso a esta obra.");
+      return true;
+    }
+    if (r.status === 401 || r.status === 403) {
+      sesion.cerrar();
+      mostrarLogin("La sesión venció. Entrá de nuevo.");
+      return true;
+    }
+    return false;
+  }
+
+  let gastos = [];
+
+  async function cargarDatos() {
+    let rg, rc;
+    try {
+      [rg, rc] = await Promise.all([api("GET", "/ms-obra/gastos"), api("GET", "/ms-obra/cuotas")]);
+    } catch (_) {
+      avisoGeneral("No se pudo conectar con el servidor de la obra. Probá de nuevo en un rato.");
+      return false;
+    }
+    if (sinAcceso(rg) || sinAcceso(rc)) return false;
+    if (!rg.ok || !rc.ok) {
+      avisoGeneral("El servidor de la obra respondió con un error (" + (rg.ok ? rc.status : rg.status) + ").");
+      return false;
+    }
+    avisoGeneral("");
+    gastos = rg.datos;
+    dash.poner("gastos", gastos.map((g) => ({
+      id: g.id, "Categoría": g.categoria, "Concepto": g.concepto, "Fecha": g.fecha,
+      "Forma de pago": g.forma_pago, "Monto": g.monto, "Notas": g.notas, "Proveedor": g.proveedor,
+    })));
+    dash.poner("cuotas", rc.datos.map((c) => ({
+      id: c.id, "Concepto": c.concepto, "Valor cuota": c.valor_cuota, "Total cuotas": c.total_cuotas,
+    })));
+    dash.redibujar();
+    llenarOpciones();
+    return true;
+  }
+
+  const pesos = new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", currencyDisplay: "code" });
+
+  function llenarOpciones() {
+    const categorias = [...new Set(gastos.map((g) => g.categoria))].sort((a, b) => a.localeCompare(b, "es"));
+    $("categorias").replaceChildren(...categorias.map((c) => { const o = document.createElement("option"); o.value = c; return o; }));
+    const opciones = gastos.map((g) => {
+      const o = document.createElement("option");
+      o.value = g.id;
+      o.textContent = g.fecha.split("-").reverse().join("/") + " · " + pesos.format(g.monto) + " · " + g.concepto;
+      return o;
+    });
+    const vacio = document.createElement("option");
+    vacio.value = "";
+    vacio.textContent = gastos.length ? "Elegí un gasto…" : "No hay gastos cargados";
+    $("b-gasto").replaceChildren(vacio, ...opciones);
+  }
+
+  async function actualizarCotizacion() {
+    try {
+      const res = await fetch("https://dolarapi.com/v1/dolares/blue");
+      if (!res.ok) return;
+      const d = await res.json();
+      const fecha = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Argentina/Buenos_Aires" }).format(new Date(d.fechaActualizacion));
+      dash.poner("cotizacion", [{ Tipo: d.nombre, Compra: d.compra, Venta: d.venta, Fecha: fecha, Actualizado: d.fechaActualizacion, Fuente: "DolarApi" }]);
+      dash.redibujar();
+    } catch (_) { /* sin cotización, los totales en dólares quedan en blanco */ }
+  }
+
+  function hoy() {
+    return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Argentina/Buenos_Aires" }).format(new Date());
+  }
+
+  async function entrarAlTablero() {
+    $("vista-login").hidden = true;
+    $("vista-tablero").hidden = false;
+    const d = sesion.datos();
+    $("usuario").textContent = (d && d.email) || "";
+    if (!$("g-fecha").value) $("g-fecha").value = hoy();
+    dash.redibujar();
+    actualizarCotizacion();
+    await cargarDatos();
+  }
+
+  function aviso(id, texto, tipo) {
+    $(id).textContent = texto || "";
+    $(id).className = "aviso" + (tipo ? " " + tipo : "");
+  }
+
+  $("form-login").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    $("login-aviso").textContent = "";
+    $("login-boton").disabled = true;
+    try {
+      const r = await api("POST", "/obra-auth/users/login", {
+        email: $("login-email").value.trim(),
+        password: $("login-password").value,
+        authentication_provider_code: "LOCAL",
+      });
+      if (r.ok && r.datos && r.datos.jwt_token) {
+        sesion.poner(r.datos.jwt_token);
+        await entrarAlTablero();
+      } else {
+        $("login-aviso").textContent = "No se pudo entrar. Revisá el email y la contraseña.";
+      }
+    } catch (_) {
+      $("login-aviso").textContent = "No se pudo conectar con el servidor de la obra. Probá de nuevo en un rato.";
+    } finally {
+      $("login-boton").disabled = false;
+    }
+  });
+
+  $("salir").addEventListener("click", () => { sesion.cerrar(); mostrarLogin(""); });
+  $("actualizar").addEventListener("click", () => { actualizarCotizacion(); cargarDatos(); });
+
+  $("form-gasto").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    aviso("g-aviso", "");
+    $("g-boton").disabled = true;
+    try {
+      const r = await api("POST", "/ms-obra/gastos", {
+        categoria: $("g-categoria").value.trim(),
+        concepto: $("g-concepto").value.trim(),
+        fecha: $("g-fecha").value,
+        forma_pago: $("g-forma-pago").value,
+        monto: Number($("g-monto").value),
+        notas: $("g-notas").value.trim() || null,
+        proveedor: $("g-proveedor").value.trim() || null,
+      });
+      if (sinAcceso(r)) return;
+      if (!r.ok) {
+        aviso("g-aviso", MENSAJES[r.datos && r.datos.code] || "No se pudo cargar el gasto (" + r.status + ").", "error");
+        return;
+      }
+      for (const id of ["g-concepto", "g-monto", "g-notas", "g-proveedor"]) $(id).value = "";
+      aviso("g-aviso", "Cargado: " + r.datos.concepto + ", " + pesos.format(r.datos.monto) + " (" + r.datos.id + ").", "ok");
+      await cargarDatos();
+    } catch (_) {
+      aviso("g-aviso", "No se pudo conectar con el servidor de la obra. El gasto no se cargó.", "error");
+    } finally {
+      $("g-boton").disabled = false;
+    }
+  });
+
+  $("b-boton").addEventListener("click", async () => {
+    const id = $("b-gasto").value;
+    const gasto = gastos.find((g) => g.id === id);
+    if (!gasto) { aviso("b-aviso", "Elegí primero un gasto de la lista.", "error"); return; }
+    if (!confirm("¿Borrar \"" + gasto.concepto + "\" por " + pesos.format(gasto.monto) + "? No se puede deshacer.")) return;
+    aviso("b-aviso", "");
+    $("b-boton").disabled = true;
+    try {
+      const r = await api("DELETE", "/ms-obra/gastos/" + encodeURIComponent(id));
+      if (sinAcceso(r)) return;
+      if (!r.ok) {
+        aviso("b-aviso", MENSAJES[r.datos && r.datos.code] || "No se pudo borrar el gasto (" + r.status + ").", "error");
+        if (r.status === 404) await cargarDatos();
+        return;
+      }
+      aviso("b-aviso", "Borrado: " + gasto.concepto + ", " + pesos.format(gasto.monto) + ".", "ok");
+      await cargarDatos();
+    } catch (_) {
+      aviso("b-aviso", "No se pudo conectar con el servidor de la obra. El gasto no se borró.", "error");
+    } finally {
+      $("b-boton").disabled = false;
+    }
+  });
+
+  let espera;
+  window.addEventListener("resize", () => { clearTimeout(espera); espera = setTimeout(dash.redibujar, 150); });
+
+  // La página anterior (la cifrada) podía dejar guardada su contraseña en el navegador. Ya no sirve: se borra.
+  try { localStorage.removeItem("tablero-clave"); } catch (_) {}
+
+  sesion.leer();
+  if (sesion.vigente()) entrarAlTablero();
+  else { sesion.cerrar(); mostrarLogin(""); }
+})();
+</script>
+</body>
+</html>
